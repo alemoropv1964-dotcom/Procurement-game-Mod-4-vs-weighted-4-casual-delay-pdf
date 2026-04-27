@@ -227,7 +227,6 @@ if modalita == "Competizione":
 
         elif criterio.startswith("D"):
             # Ordina per penalità, poi casuale
-            # Penalità uguali → ordine casuale
             penalita_min = min(x[1] for x in lista)
             pari = [x for x in lista if x[1] == penalita_min]
             altri = [x for x in lista if x[1] != penalita_min]
@@ -237,22 +236,22 @@ if modalita == "Competizione":
     # ---------------------------------------------------------
     # AVVIO COMPETIZIONE
     # ---------------------------------------------------------
-  if st.button("Avvia Competizione"):
+    if st.button("Avvia Competizione"):
 
-    vittorie_mod4 = [0, 0, 0, 0]
-    vittorie_pesato = [0, 0, 0, 0]
+        vittorie_mod4 = [0, 0, 0, 0]
+        vittorie_pesato = [0, 0, 0, 0]
 
-    quantita_mod4 = [0, 0, 0, 0]
-    quantita_pesato = [0, 0, 0, 0]
+        quantita_mod4 = [0, 0, 0, 0]
+        quantita_pesato = [0, 0, 0, 0]
 
-    secondi_mod4 = [0, 0, 0, 0]
-    secondi_pesato = [0, 0, 0, 0]
+        secondi_mod4 = [0, 0, 0, 0]
+        secondi_pesato = [0, 0, 0, 0]
 
-    penalita_secondi_pesato = []
+        penalita_secondi_pesato = []
 
-    # >>> AGGIUNTA: contatori ritardi
-    ritardi_mod4 = [0, 0, 0, 0]
-    ritardi_pesato = [0, 0, 0, 0]
+        # >>> contatori ritardi
+        ritardi_mod4 = [0, 0, 0, 0]
+        ritardi_pesato = [0, 0, 0, 0]
 
         for t in range(n_tentativi):
 
@@ -279,10 +278,12 @@ if modalita == "Competizione":
                     if quantita > f["capacita"]:
                         continue
 
-                # >>> AGGIUNTA
-                if ritardo:
-                    ritardi_mod4[idx] += 1
-                   
+                    lt_eff, ritardo, new_flag = calcola_lt_eff(f, last_ritardo_mod4[idx])
+                    last_ritardo_mod4[idx] = new_flag
+
+                    # >>> conteggio ritardi Mod(4)
+                    if ritardo:
+                        ritardi_mod4[idx] += 1
 
                     if lt_eff <= lead_time_max:
                         validi.append((idx, lt_eff))
@@ -310,7 +311,10 @@ if modalita == "Competizione":
                     if quantita > f["capacita"]:
                         continue
 
-                    # >>> AGGIUNTA
+                    lt_eff, ritardo, new_flag = calcola_lt_eff(f, last_ritardo_pesato[idx])
+                    last_ritardo_pesato[idx] = new_flag
+
+                    # >>> conteggio ritardi Pesato
                     if ritardo:
                         ritardi_pesato[idx] += 1
 
@@ -348,10 +352,10 @@ if modalita == "Competizione":
             "Quantità Pesato": quantita_pesato,
             "Secondo Mod(4)": secondi_mod4,
             "Secondo Pesato": secondi_pesato,
-            # >>> AGGIUNTA
             "Ritardi Mod(4)": ritardi_mod4,
             "Ritardi Pesato": ritardi_pesato
-}
+        }
+
         st.write("### 🏆 Tabella Comparativa")
         st.dataframe(tabella, use_container_width=True)
 
@@ -381,10 +385,6 @@ if modalita == "Competizione":
         ax.set_title("Confronto Vittorie")
         ax.legend()
         st.pyplot(fig)
-
-
-
-
 
 # ---------------------------------------------------------
 # SIMULAZIONE SINGOLA (Mod(4) / Pesato)
