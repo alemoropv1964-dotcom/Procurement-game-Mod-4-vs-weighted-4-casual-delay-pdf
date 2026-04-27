@@ -8,7 +8,7 @@ import numpy as np
 # ---------------------------------------------------------
 st.title("🔄 Simulatore di Procurement – Mod(4) + Modello Pesato + Modelli di Ritardo")
 st.write("""
-Simulatore unico con due modalità selezionabili:
+Simulatore unico con tre modalità selezionabili:
 
 ### 🔵 Modalità 1 — Mod(4) puro
 Assegnazione deterministica con fallback ciclico:
@@ -18,7 +18,10 @@ F1 → F2 → F3 → F4 → F1
 Scelta ottimizzata basata su penalità:
 penalità = w_LT * LT_eff + w_C * Costo_totale
 
-Entrambe le modalità includono 4 modelli di ritardo:
+### 🏁 Modalità 3 — Competizione
+Confronto statistico tra Mod(4) e Modello Pesato su n tentativi.
+
+Entrambe le modalità usano 4 modelli di ritardo:
 1) Bernoulliano  
 2) Proporzionale  
 3) Esponenziale  
@@ -30,7 +33,7 @@ Entrambe le modalità includono 4 modelli di ritardo:
 # ---------------------------------------------------------
 modalita = st.radio(
     "Seleziona la modalità di simulazione:",
-    ["Mod(4) puro", "Modello Pesato"]
+    ["Mod(4) puro", "Modello Pesato", "Competizione"]
 )
 
 # ---------------------------------------------------------
@@ -77,161 +80,6 @@ for i in range(4):
         "capacita": cap,
         "modello_ritardo": modello
     })
-# ---------------------------------------------------------
-# MODALITÀ COMPETIZIONE (versione avanzata)
-# ---------------------------------------------------------
-if modalita == "Competizione":
-
-    st.header("🏁 Competizione Mod(4) vs Modello Pesato")
-
-    n_tentativi = st.number_input(
-        "Numero tentativi (minimo 10)",
-        min_value=10,
-        max_value=500,
-        value=50
-    )
-
-    st.write("Ogni tentativo usa gli stessi ordini e gli stessi fornitori.")
-
-    if st.button("Avvia Competizione"):
-
-        # STATISTICHE GLOBALI
-        vittorie_mod4 = [0, 0, 0, 0]
-        vittorie_pesato = [0, 0, 0, 0]
-
-        quantita_mod4 = [0, 0, 0, 0]
-        quantita_pesato = [0, 0, 0, 0]
-
-        secondi_mod4 = [0, 0, 0, 0]
-        secondi_pesato = [0, 0, 0, 0]
-
-        penalita_secondi_pesato = []
-
-        for t in range(n_tentativi):
-
-            # Stato memoria ritardi per modello "con memoria"
-            last_ritardo_mod4 = [False] * 4
-            last_ritardo_pesato = [False] * 4
-
-            # ---------------------------------------------------------
-            # MOD(4)
-            # ---------------------------------------------------------
-            for i, quantita in enumerate(ordini):
-
-                ordine_fornitori = [
-                    i,
-                    ciclo_mod4(i),
-                    ciclo_mod4(ciclo_mod4(i)),
-                    ciclo_mod4(ciclo_mod4(ciclo_mod4(i)))
-                ]
-
-                best = None
-                second = None
-
-                # Valutazione sequenziale
-                for idx in ordine_fornitori:
-                    f = fornitori[idx]
-
-                    if quantita > f["capacita"]:
-                        continue
-
-                    lt_eff, ritardo, new_flag = calcola_lt_eff(f, last_ritardo_mod4[idx])
-                    last_ritardo_mod4[idx] = new_flag
-
-                    if lt_eff <= lead_time_max:
-                        if best is None:
-                            best = (idx, lt_eff)
-                        elif second is None:
-                            second = (idx, lt_eff)
-                        break
-
-                if best is not None:
-                    f_idx = best[0]
-                    vittorie_mod4[f_idx] += 1
-                    quantita_mod4[f_idx] += quantita
-
-                if second is not None:
-                    secondi_mod4[second[0]] += 1
-
-            # ---------------------------------------------------------
-            # PESATO
-            # ---------------------------------------------------------
-            for i, quantita in enumerate(ordini):
-
-                penalita_fornitori = []
-
-                for idx, f in enumerate(fornitori):
-
-                    if quantita > f["capacita"]:
-                        continue
-
-                    lt_eff, ritardo, new_flag = calcola_lt_eff(f, last_ritardo_pesato[idx])
-                    last_ritardo_pesato[idx] = new_flag
-
-                    if lt_eff <= lead_time_max:
-                        costo_totale = quantita * f["costo"]
-                        pen = penalita(lt_eff, costo_totale, peso_lt, peso_costo)
-                        penalita_fornitori.append((idx, pen, lt_eff))
-
-                if len(penalita_fornitori) > 0:
-
-                    # Ordiniamo per penalità crescente
-                    penalita_fornitori.sort(key=lambda x: x[1])
-
-                    best_idx, best_pen, best_lt = penalita_fornitori[0]
-                    vittorie_pesato[best_idx] += 1
-                    quantita_pesato[best_idx] += quantita
-
-                    # Seconda classificata
-                    if len(penalita_fornitori) > 1:
-                        sec_idx, sec_pen, sec_lt = penalita_fornitori[1]
-                        secondi_pesato[sec_idx] += 1
-                        penalita_secondi_pesato.append(sec_pen)
-
-        # ---------------------------------------------------------
-        # RISULTATI FINALI
-        # ---------------------------------------------------------
-        st.subheader("📊 Risultati Competizione")
-
-        tabella = {
-            "Fornitore": [f"F{i+1}" for i in range(4)],
-            "Vittorie Mod(4)": vittorie_mod4,
-            "Vittorie Pesato": vittorie_pesato,
-            "Quantità Mod(4)": quantita_mod4,
-            "Quantità Pesato": quantita_pesato,
-            "Secondo Mod(4)": secondi_mod4,
-            "Secondo Pesato": secondi_pesato
-        }
-
-        st.write("### 🏆 Tabella Comparativa")
-        st.dataframe(tabella, use_container_width=True)
-
-        # Overflow diagnostico
-        st.write("### ⚠️ Overflow capacità (diagnostico)")
-
-        overflow = []
-        for i in range(4):
-            overflow.append({
-                "Fornitore": f"F{i+1}",
-                "Capacità": fornitori[i]["capacita"],
-                "Quantità Mod(4)": quantita_mod4[i],
-                "Overflow Mod(4)": "❌" if quantita_mod4[i] > fornitori[i]["capacita"] else "✔",
-                "Quantità Pesato": quantita_pesato[i],
-                "Overflow Pesato": "❌" if quantita_pesato[i] > fornitori[i]["capacita"] else "✔"
-            })
-
-        st.dataframe(overflow, use_container_width=True)
-
-        # Grafico a barre
-        fig, ax = plt.subplots(figsize=(8, 4))
-        x = np.arange(4)
-        ax.bar(x - 0.15, vittorie_mod4, width=0.3, label="Mod(4)")
-        ax.bar(x + 0.15, vittorie_pesato, width=0.3, label="Pesato")
-        ax.set_xticks(x)
-        ax.set_xticklabels([f"F{i+1}" for i in range(4)])
-        ax.set_title("Confronto Vittorie")
-        ax.legend()
-        st.pyplot(fig)
 
 # ---------------------------------------------------------
 # PARAMETRI PROCUREMENT
@@ -254,9 +102,9 @@ ordini = [q1, q2, q3, q4]
 lead_time_max = st.number_input("Lead Time massimo accettabile", 1, 60, 10)
 
 # ---------------------------------------------------------
-# PESI PER LA FUNZIONE DI SCELTA (solo per modello pesato)
+# PESI PER LA FUNZIONE DI SCELTA (solo per modello pesato / competizione)
 # ---------------------------------------------------------
-if modalita == "Modello Pesato":
+if modalita in ["Modello Pesato", "Competizione"]:
     st.header("⚖️ Pesi per la funzione di scelta (somma = 1)")
 
     col_p1, col_p2 = st.columns(2)
@@ -325,7 +173,158 @@ def calcola_lt_eff(f, last_ritardo_flag):
     return lt_eff, ritardo, nuovo_flag
 
 # ---------------------------------------------------------
-# SIMULAZIONE
+# MODALITÀ COMPETIZIONE
+# ---------------------------------------------------------
+if modalita == "Competizione":
+
+    st.header("🏁 Competizione Mod(4) vs Modello Pesato")
+
+    n_tentativi = st.number_input(
+        "Numero tentativi (minimo 10)",
+        min_value=10,
+        max_value=500,
+        value=50
+    )
+
+    st.write("Ogni tentativo usa gli stessi ordini e gli stessi fornitori.")
+
+    if st.button("Avvia Competizione"):
+
+        # STATISTICHE GLOBALI
+        vittorie_mod4 = [0, 0, 0, 0]
+        vittorie_pesato = [0, 0, 0, 0]
+
+        quantita_mod4 = [0, 0, 0, 0]
+        quantita_pesato = [0, 0, 0, 0]
+
+        secondi_mod4 = [0, 0, 0, 0]
+        secondi_pesato = [0, 0, 0, 0]
+
+        penalita_secondi_pesato = []
+
+        for t in range(n_tentativi):
+
+            # Stato memoria ritardi per modello "con memoria"
+            last_ritardo_mod4 = [False] * 4
+            last_ritardo_pesato = [False] * 4
+
+            # ---------------------------------------------------------
+            # MOD(4)
+            # ---------------------------------------------------------
+            for i, quantita in enumerate(ordini):
+
+                ordine_fornitori = [
+                    i,
+                    ciclo_mod4(i),
+                    ciclo_mod4(ciclo_mod4(i)),
+                    ciclo_mod4(ciclo_mod4(ciclo_mod4(i)))
+                ]
+
+                best = None
+                second = None
+
+                for idx in ordine_fornitori:
+                    f = fornitori[idx]
+
+                    if quantita > f["capacita"]:
+                        continue
+
+                    lt_eff, ritardo, new_flag = calcola_lt_eff(f, last_ritardo_mod4[idx])
+                    last_ritardo_mod4[idx] = new_flag
+
+                    if lt_eff <= lead_time_max:
+                        if best is None:
+                            best = (idx, lt_eff)
+                        elif second is None:
+                            second = (idx, lt_eff)
+                            break
+
+                if best is not None:
+                    f_idx = best[0]
+                    vittorie_mod4[f_idx] += 1
+                    quantita_mod4[f_idx] += quantita
+
+                if second is not None:
+                    secondi_mod4[second[0]] += 1
+
+            # ---------------------------------------------------------
+            # PESATO
+            # ---------------------------------------------------------
+            for i, quantita in enumerate(ordini):
+
+                penalita_fornitori = []
+
+                for idx, f in enumerate(fornitori):
+
+                    if quantita > f["capacita"]:
+                        continue
+
+                    lt_eff, ritardo, new_flag = calcola_lt_eff(f, last_ritardo_pesato[idx])
+                    last_ritardo_pesato[idx] = new_flag
+
+                    if lt_eff <= lead_time_max:
+                        costo_totale = quantita * f["costo"]
+                        pen = penalita(lt_eff, costo_totale, peso_lt, peso_costo)
+                        penalita_fornitori.append((idx, pen, lt_eff))
+
+                if len(penalita_fornitori) > 0:
+
+                    penalita_fornitori.sort(key=lambda x: x[1])
+
+                    best_idx, best_pen, best_lt = penalita_fornitori[0]
+                    vittorie_pesato[best_idx] += 1
+                    quantita_pesato[best_idx] += quantita
+
+                    if len(penalita_fornitori) > 1:
+                        sec_idx, sec_pen, sec_lt = penalita_fornitori[1]
+                        secondi_pesato[sec_idx] += 1
+                        penalita_secondi_pesato.append(sec_pen)
+
+        # ---------------------------------------------------------
+        # RISULTATI FINALI
+        # ---------------------------------------------------------
+        st.subheader("📊 Risultati Competizione")
+
+        tabella = {
+            "Fornitore": [f"F{i+1}" for i in range(4)],
+            "Vittorie Mod(4)": vittorie_mod4,
+            "Vittorie Pesato": vittorie_pesato,
+            "Quantità Mod(4)": quantita_mod4,
+            "Quantità Pesato": quantita_pesato,
+            "Secondo Mod(4)": secondi_mod4,
+            "Secondo Pesato": secondi_pesato
+        }
+
+        st.write("### 🏆 Tabella Comparativa")
+        st.dataframe(tabella, use_container_width=True)
+
+        st.write("### ⚠️ Overflow capacità (diagnostico)")
+
+        overflow = []
+        for i in range(4):
+            overflow.append({
+                "Fornitore": f"F{i+1}",
+                "Capacità": fornitori[i]["capacita"],
+                "Quantità Mod(4)": quantita_mod4[i],
+                "Overflow Mod(4)": "❌" if quantita_mod4[i] > fornitori[i]["capacita"] else "✔",
+                "Quantità Pesato": quantita_pesato[i],
+                "Overflow Pesato": "❌" if quantita_pesato[i] > fornitori[i]["capacita"] else "✔"
+            })
+
+        st.dataframe(overflow, use_container_width=True)
+
+        fig, ax = plt.subplots(figsize=(8, 4))
+        x = np.arange(4)
+        ax.bar(x - 0.15, vittorie_mod4, width=0.3, label="Mod(4)")
+        ax.bar(x + 0.15, vittorie_pesato, width=0.3, label="Pesato")
+        ax.set_xticks(x)
+        ax.set_xticklabels([f"F{i+1}" for i in range(4)])
+        ax.set_title("Confronto Vittorie")
+        ax.legend()
+        st.pyplot(fig)
+
+# ---------------------------------------------------------
+# SIMULAZIONE SINGOLA (Mod(4) / Pesato)
 # ---------------------------------------------------------
 st.header("🚀 Esegui Simulazione")
 
@@ -341,9 +340,7 @@ if st.button("Simula"):
         confronto = []
         penalita_fornitori = []
 
-        # ---------------------------------------------------------
         # MODALITÀ 1 — MOD(4) PURO
-        # ---------------------------------------------------------
         if modalita == "Mod(4) puro":
 
             ordine_fornitori = [
@@ -405,10 +402,8 @@ if st.button("Simula"):
                 "penalita": best["lead_time"]
             })
 
-        # ---------------------------------------------------------
         # MODALITÀ 2 — MODELLO PESATO
-        # ---------------------------------------------------------
-        else:
+        elif modalita == "Modello Pesato":
 
             for idx, f in enumerate(fornitori):
 
@@ -466,7 +461,6 @@ if st.button("Simula"):
                 "penalita": best["penalita"]
             })
 
-    
     # ---------------------------------------------------------
     # GRAFICO RADAR
     # ---------------------------------------------------------
