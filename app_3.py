@@ -173,12 +173,13 @@ def calcola_lt_eff(f, last_ritardo_flag):
     return lt_eff, ritardo, nuovo_flag
 
 # ---------------------------------------------------------
-# MODALITÀ COMPETIZIONE
+# MODALITÀ COMPETIZIONE — VERSIONE DEFINITIVA
 # ---------------------------------------------------------
 if modalita == "Competizione":
 
     st.header("🏁 Competizione Mod(4) vs Modello Pesato")
 
+    # Numero tentativi
     n_tentativi = st.number_input(
         "Numero tentativi (minimo 10)",
         min_value=10,
@@ -186,11 +187,58 @@ if modalita == "Competizione":
         value=50
     )
 
+    # Toggle tie-breaking
+    criterio = st.selectbox(
+        "Criterio tie-breaking (penalità uguali):",
+        [
+            "A) Indice fornitore (deterministico)",
+            "B) Costo minore",
+            "C) Lead time effettivo minore",
+            "D) Casuale (seed controllato)"
+        ]
+    )
+
+    # Seed per criterio D
+    if criterio == "D) Casuale (seed controllato)":
+        random.seed(12345)
+
     st.write("Ogni tentativo usa gli stessi ordini e gli stessi fornitori.")
 
+    # ---------------------------------------------------------
+    # FUNZIONE TIE-BREAKING
+    # ---------------------------------------------------------
+    def tie_break(lista):
+        """
+        lista = [(idx, penalità, lt_eff, costo_totale)]
+        ritorna lista ordinata secondo il criterio scelto
+        """
+
+        if criterio.startswith("A"):
+            # Ordina per penalità, poi per indice fornitore
+            return sorted(lista, key=lambda x: (x[1], x[0]))
+
+        elif criterio.startswith("B"):
+            # Ordina per penalità, poi per costo totale
+            return sorted(lista, key=lambda x: (x[1], x[3]))
+
+        elif criterio.startswith("C"):
+            # Ordina per penalità, poi per lead time effettivo
+            return sorted(lista, key=lambda x: (x[1], x[2]))
+
+        elif criterio.startswith("D"):
+            # Ordina per penalità, poi casuale
+            # Penalità uguali → ordine casuale
+            penalita_min = min(x[1] for x in lista)
+            pari = [x for x in lista if x[1] == penalita_min]
+            altri = [x for x in lista if x[1] != penalita_min]
+            random.shuffle(pari)
+            return pari + sorted(altri, key=lambda x: x[1])
+
+    # ---------------------------------------------------------
+    # AVVIO COMPETIZIONE
+    # ---------------------------------------------------------
     if st.button("Avvia Competizione"):
 
-        # STATISTICHE GLOBALI
         vittorie_mod4 = [0, 0, 0, 0]
         vittorie_pesato = [0, 0, 0, 0]
 
@@ -204,7 +252,6 @@ if modalita == "Competizione":
 
         for t in range(n_tentativi):
 
-            # Stato memoria ritardi per modello "con memoria"
             last_ritardo_mod4 = [False] * 4
             last_ritardo_pesato = [False] * 4
 
@@ -220,8 +267,7 @@ if modalita == "Competizione":
                     ciclo_mod4(ciclo_mod4(ciclo_mod4(i)))
                 ]
 
-                best = None
-                second = None
+                validi = []
 
                 for idx in ordine_fornitori:
                     f = fornitori[idx]
@@ -233,26 +279,25 @@ if modalita == "Competizione":
                     last_ritardo_mod4[idx] = new_flag
 
                     if lt_eff <= lead_time_max:
-                        if best is None:
-                            best = (idx, lt_eff)
-                        elif second is None:
-                            second = (idx, lt_eff)
-                            break
+                        validi.append((idx, lt_eff))
 
-                if best is not None:
-                    f_idx = best[0]
-                    vittorie_mod4[f_idx] += 1
-                    quantita_mod4[f_idx] += quantita
+                if len(validi) > 0:
+                    # Prima classificata
+                    best_idx = validi[0][0]
+                    vittorie_mod4[best_idx] += 1
+                    quantita_mod4[best_idx] += quantita
 
-                if second is not None:
-                    secondi_mod4[second[0]] += 1
+                    # Seconda classificata
+                    if len(validi) > 1:
+                        second_idx = validi[1][0]
+                        secondi_mod4[second_idx] += 1
 
             # ---------------------------------------------------------
             # PESATO
             # ---------------------------------------------------------
             for i, quantita in enumerate(ordini):
 
-                penalita_fornitori = []
+                valutazioni = []
 
                 for idx, f in enumerate(fornitori):
 
@@ -265,20 +310,23 @@ if modalita == "Competizione":
                     if lt_eff <= lead_time_max:
                         costo_totale = quantita * f["costo"]
                         pen = penalita(lt_eff, costo_totale, peso_lt, peso_costo)
-                        penalita_fornitori.append((idx, pen, lt_eff))
+                        valutazioni.append((idx, pen, lt_eff, costo_totale))
 
-                if len(penalita_fornitori) > 0:
+                if len(valutazioni) > 0:
 
-                    penalita_fornitori.sort(key=lambda x: x[1])
+                    # Ordina con tie-breaking
+                    ordinati = tie_break(valutazioni)
 
-                    best_idx, best_pen, best_lt = penalita_fornitori[0]
+                    # Prima classificata
+                    best_idx = ordinati[0][0]
                     vittorie_pesato[best_idx] += 1
                     quantita_pesato[best_idx] += quantita
 
-                    if len(penalita_fornitori) > 1:
-                        sec_idx, sec_pen, sec_lt = penalita_fornitori[1]
+                    # Seconda classificata
+                    if len(ordinati) > 1:
+                        sec_idx = ordinati[1][0]
                         secondi_pesato[sec_idx] += 1
-                        penalita_secondi_pesato.append(sec_pen)
+                        penalita_secondi_pesato.append(ordinati[1][1])
 
         # ---------------------------------------------------------
         # RISULTATI FINALI
@@ -298,6 +346,7 @@ if modalita == "Competizione":
         st.write("### 🏆 Tabella Comparativa")
         st.dataframe(tabella, use_container_width=True)
 
+        # Overflow diagnostico
         st.write("### ⚠️ Overflow capacità (diagnostico)")
 
         overflow = []
@@ -313,6 +362,7 @@ if modalita == "Competizione":
 
         st.dataframe(overflow, use_container_width=True)
 
+        # Grafico vittorie
         fig, ax = plt.subplots(figsize=(8, 4))
         x = np.arange(4)
         ax.bar(x - 0.15, vittorie_mod4, width=0.3, label="Mod(4)")
@@ -322,6 +372,10 @@ if modalita == "Competizione":
         ax.set_title("Confronto Vittorie")
         ax.legend()
         st.pyplot(fig)
+
+
+
+
 
 # ---------------------------------------------------------
 # SIMULAZIONE SINGOLA (Mod(4) / Pesato)
