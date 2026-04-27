@@ -237,18 +237,22 @@ if modalita == "Competizione":
     # ---------------------------------------------------------
     # AVVIO COMPETIZIONE
     # ---------------------------------------------------------
-    if st.button("Avvia Competizione"):
+  if st.button("Avvia Competizione"):
 
-        vittorie_mod4 = [0, 0, 0, 0]
-        vittorie_pesato = [0, 0, 0, 0]
+    vittorie_mod4 = [0, 0, 0, 0]
+    vittorie_pesato = [0, 0, 0, 0]
 
-        quantita_mod4 = [0, 0, 0, 0]
-        quantita_pesato = [0, 0, 0, 0]
+    quantita_mod4 = [0, 0, 0, 0]
+    quantita_pesato = [0, 0, 0, 0]
 
-        secondi_mod4 = [0, 0, 0, 0]
-        secondi_pesato = [0, 0, 0, 0]
+    secondi_mod4 = [0, 0, 0, 0]
+    secondi_pesato = [0, 0, 0, 0]
 
-        penalita_secondi_pesato = []
+    penalita_secondi_pesato = []
+
+    # >>> AGGIUNTA: contatori ritardi
+    ritardi_mod4 = [0, 0, 0, 0]
+    ritardi_pesato = [0, 0, 0, 0]
 
         for t in range(n_tentativi):
 
@@ -275,8 +279,10 @@ if modalita == "Competizione":
                     if quantita > f["capacita"]:
                         continue
 
-                    lt_eff, ritardo, new_flag = calcola_lt_eff(f, last_ritardo_mod4[idx])
-                    last_ritardo_mod4[idx] = new_flag
+                # >>> AGGIUNTA
+                if ritardo:
+                    ritardi_mod4[idx] += 1
+                   
 
                     if lt_eff <= lead_time_max:
                         validi.append((idx, lt_eff))
@@ -304,8 +310,9 @@ if modalita == "Competizione":
                     if quantita > f["capacita"]:
                         continue
 
-                    lt_eff, ritardo, new_flag = calcola_lt_eff(f, last_ritardo_pesato[idx])
-                    last_ritardo_pesato[idx] = new_flag
+                    # >>> AGGIUNTA
+                    if ritardo:
+                        ritardi_pesato[idx] += 1
 
                     if lt_eff <= lead_time_max:
                         costo_totale = quantita * f["costo"]
@@ -340,9 +347,11 @@ if modalita == "Competizione":
             "Quantità Mod(4)": quantita_mod4,
             "Quantità Pesato": quantita_pesato,
             "Secondo Mod(4)": secondi_mod4,
-            "Secondo Pesato": secondi_pesato
-        }
-
+            "Secondo Pesato": secondi_pesato,
+            # >>> AGGIUNTA
+            "Ritardi Mod(4)": ritardi_mod4,
+            "Ritardi Pesato": ritardi_pesato
+}
         st.write("### 🏆 Tabella Comparativa")
         st.dataframe(tabella, use_container_width=True)
 
