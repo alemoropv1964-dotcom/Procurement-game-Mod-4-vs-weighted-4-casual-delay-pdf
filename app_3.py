@@ -1,0 +1,353 @@
+import streamlit as st
+import random
+import matplotlib.pyplot as plt
+import numpy as np
+
+# ---------------------------------------------------------
+# TITOLO E INTRODUZIONE
+# ---------------------------------------------------------
+st.title("🔄 Simulatore di Procurement – Mod(4) + Modello Pesato + Modelli di Ritardo")
+st.write("""
+Simulatore unico con due modalità selezionabili:
+
+### 🔵 Modalità 1 — Mod(4) puro
+Assegnazione deterministica con fallback ciclico:
+F1 → F2 → F3 → F4 → F1
+
+### 🟣 Modalità 2 — Modello Pesato
+Scelta ottimizzata basata su penalità:
+penalità = w_LT * LT_eff + w_C * Costo_totale
+
+Entrambe le modalità includono 4 modelli di ritardo:
+1) Bernoulliano  
+2) Proporzionale  
+3) Esponenziale  
+4) Con memoria  
+""")
+
+# ---------------------------------------------------------
+# SELETTORE DI MODALITÀ
+# ---------------------------------------------------------
+modalita = st.radio(
+    "Seleziona la modalità di simulazione:",
+    ["Mod(4) puro", "Modello Pesato"]
+)
+
+# ---------------------------------------------------------
+# PARAMETRI FORNITORI
+# ---------------------------------------------------------
+st.header("📦 Parametri dei 4 Fornitori")
+
+MODELLI_RITARDO = [
+    "Bernoulliano",
+    "Proporzionale",
+    "Esponenziale",
+    "Con memoria"
+]
+
+fornitori = []
+for i in range(4):
+    st.subheader(f"Fornitore F{i+1}")
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+
+    with col1:
+        costo = st.number_input(f"Costo F{i+1}", 1, 100, 10)
+
+    with col2:
+        lt = st.number_input(f"Lead Time F{i+1}", 1, 60, 5)
+
+    with col3:
+        prob = st.slider(f"Prob. Ritardo F{i+1}", 0.0, 1.0, 0.10)
+
+    with col4:
+        cap = st.number_input(f"Capacità F{i+1}", 1, 500, 100)
+
+    with col5:
+        modello = st.selectbox(
+            f"Modello ritardo F{i+1}",
+            MODELLI_RITARDO,
+            index=0
+        )
+
+    fornitori.append({
+        "costo": costo,
+        "lead_time": lt,
+        "prob_ritardo": prob,
+        "capacita": cap,
+        "modello_ritardo": modello
+    })
+
+# ---------------------------------------------------------
+# PARAMETRI PROCUREMENT
+# ---------------------------------------------------------
+st.header("📝 Parametri Procurement")
+
+colA, colB, colC, colD = st.columns(4)
+
+with colA:
+    q1 = st.number_input("Ordine 1", 0, 500, 50)
+with colB:
+    q2 = st.number_input("Ordine 2", 0, 500, 40)
+with colC:
+    q3 = st.number_input("Ordine 3", 0, 500, 70)
+with colD:
+    q4 = st.number_input("Ordine 4", 0, 500, 30)
+
+ordini = [q1, q2, q3, q4]
+
+lead_time_max = st.number_input("Lead Time massimo accettabile", 1, 60, 10)
+
+# ---------------------------------------------------------
+# PESI PER LA FUNZIONE DI SCELTA (solo per modello pesato)
+# ---------------------------------------------------------
+if modalita == "Modello Pesato":
+    st.header("⚖️ Pesi per la funzione di scelta (somma = 1)")
+
+    col_p1, col_p2 = st.columns(2)
+
+    with col_p1:
+        peso_lt = st.slider("Peso Lead Time", 0.0, 1.0, 0.5)
+
+    with col_p2:
+        peso_costo = 1 - peso_lt
+
+    st.write(f"Peso costo totale = **{peso_costo:.2f}**")
+else:
+    peso_lt = 0
+    peso_costo = 0
+
+# ---------------------------------------------------------
+# FUNZIONI
+# ---------------------------------------------------------
+def ciclo_mod4(i):
+    return (i + 1) % 4
+
+def penalita(lead_time, costo_totale, w_lt, w_c):
+    return w_lt * lead_time + w_c * costo_totale
+
+def calcola_lt_eff(f, last_ritardo_flag):
+    base_lt = f["lead_time"]
+    p = f["prob_ritardo"]
+    modello = f["modello_ritardo"]
+
+    lt_eff = base_lt
+    ritardo = False
+    nuovo_flag = last_ritardo_flag
+
+    # 1) Bernoulliano
+    if modello == "Bernoulliano":
+        if random.random() < p:
+            ritardo = True
+            lt_eff = base_lt * (1 + random.random())
+        nuovo_flag = ritardo
+
+    # 2) Proporzionale
+    elif modello == "Proporzionale":
+        fattore = 1 + p * random.random()
+        lt_eff = base_lt * fattore
+        ritardo = fattore > 1
+        nuovo_flag = ritardo
+
+    # 3) Esponenziale
+    elif modello == "Esponenziale":
+        scale = max(base_lt * p, 0.1)
+        extra = np.random.exponential(scale=scale)
+        lt_eff = base_lt + extra
+        ritardo = extra > 0
+        nuovo_flag = ritardo
+
+    # 4) Con memoria
+    elif modello == "Con memoria":
+        delta = 0.2
+        p_eff = p + (delta if last_ritardo_flag else -delta)
+        p_eff = max(0.0, min(1.0, p_eff))
+        if random.random() < p_eff:
+            ritardo = True
+            lt_eff = base_lt * (1 + random.random())
+        nuovo_flag = ritardo
+
+    return lt_eff, ritardo, nuovo_flag
+
+# ---------------------------------------------------------
+# SIMULAZIONE
+# ---------------------------------------------------------
+st.header("🚀 Esegui Simulazione")
+
+if st.button("Simula"):
+
+    st.subheader("📊 Risultati")
+    risultati_radar = []
+    last_ritardo = [False] * 4
+
+    for i, quantita in enumerate(ordini):
+        st.write(f"## 🔹 Ordine {i+1}: {quantita} unità")
+
+        confronto = []
+        penalita_fornitori = []
+
+        # ---------------------------------------------------------
+        # MODALITÀ 1 — MOD(4) PURO
+        # ---------------------------------------------------------
+        if modalita == "Mod(4) puro":
+
+            ordine_fornitori = [
+                i,
+                ciclo_mod4(i),
+                ciclo_mod4(ciclo_mod4(i)),
+                ciclo_mod4(ciclo_mod4(ciclo_mod4(i)))
+            ]
+
+            best = None
+
+            for idx in ordine_fornitori:
+                f = fornitori[idx]
+
+                if quantita > f["capacita"]:
+                    stato = "Scartato: capacità"
+                    lt_eff = f["lead_time"]
+                    ritardo = False
+                else:
+                    lt_eff, ritardo, new_flag = calcola_lt_eff(f, last_ritardo[idx])
+                    last_ritardo[idx] = new_flag
+
+                    if lt_eff > lead_time_max:
+                        stato = "Scartato: lead time"
+                    else:
+                        stato = "OK"
+                        best = {
+                            "fornitore": idx + 1,
+                            "costo": quantita * f["costo"],
+                            "lead_time": lt_eff,
+                            "penalita": None
+                        }
+                        break
+
+                confronto.append({
+                    "Fornitore": f"F{idx+1}",
+                    "Modello ritardo": f["modello_ritardo"],
+                    "LT effettivo": round(lt_eff, 2),
+                    "Stato": stato
+                })
+
+            st.write("### 📋 Tabella comparativa fornitori")
+            st.dataframe(confronto, use_container_width=True)
+
+            if best is None:
+                st.error("❌ Nessun fornitore disponibile per questo ordine.")
+                continue
+
+            st.success(
+                f"🏆 Fornitore selezionato: **F{best['fornitore']}** "
+                f"(Costo totale: {best['costo']}, LT eff.: {best['lead_time']:.2f})"
+            )
+
+            risultati_radar.append({
+                "ordine": i+1,
+                "fornitore": f"F{best['fornitore']}",
+                "costo": best["costo"],
+                "lead_time": best["lead_time"],
+                "penalita": best["lead_time"]
+            })
+
+        # ---------------------------------------------------------
+        # MODALITÀ 2 — MODELLO PESATO
+        # ---------------------------------------------------------
+        else:
+
+            for idx, f in enumerate(fornitori):
+
+                costo_totale = quantita * f["costo"]
+                stato = "OK"
+                pen = None
+
+                if quantita > f["capacita"]:
+                    stato = "Scartato: capacità"
+                    lt_eff = f["lead_time"]
+                    ritardo = False
+                else:
+                    lt_eff, ritardo, new_flag = calcola_lt_eff(f, last_ritardo[idx])
+                    last_ritardo[idx] = new_flag
+
+                    if lt_eff > lead_time_max:
+                        stato = "Scartato: lead time"
+                    else:
+                        pen = penalita(lt_eff, costo_totale, peso_lt, peso_costo)
+                        penalita_fornitori.append({
+                            "fornitore": idx + 1,
+                            "costo": costo_totale,
+                            "lead_time": lt_eff,
+                            "penalita": pen
+                        })
+
+                confronto.append({
+                    "Fornitore": f"F{idx+1}",
+                    "Modello ritardo": f["modello_ritardo"],
+                    "LT effettivo": round(lt_eff, 2),
+                    "Costo Totale": costo_totale,
+                    "Penalità": round(pen, 2) if pen else "-",
+                    "Stato": stato
+                })
+
+            st.write("### 📋 Tabella comparativa fornitori")
+            st.dataframe(confronto, use_container_width=True)
+
+            if len(penalita_fornitori) == 0:
+                st.error("❌ Nessun fornitore disponibile per questo ordine.")
+                continue
+
+            best = min(penalita_fornitori, key=lambda x: x["penalita"])
+
+            st.success(
+                f"🏆 Fornitore selezionato: **F{best['fornitore']}** "
+                f"(Costo totale: {best['costo']}, LT eff.: {best['lead_time']:.2f}, Penalità: {best['penalita']:.2f})"
+            )
+
+            risultati_radar.append({
+                "ordine": i+1,
+                "fornitore": f"F{best['fornitore']}",
+                "costo": best["costo"],
+                "lead_time": best["lead_time"],
+                "penalita": best["penalita"]
+            })
+
+    # ---------------------------------------------------------
+    # GRAFICO RADAR
+    # ---------------------------------------------------------
+    st.header("📈 Grafico Radar – Confronto Fornitori Vincitori")
+
+    if len(risultati_radar) > 0:
+
+        costi = np.array([r["costo"] for r in risultati_radar])
+        lts = np.array([r["lead_time"] for r in risultati_radar])
+        pens = np.array([r["penalita"] for r in risultati_radar])
+
+        costi_norm = costi / costi.max() if costi.max() > 0 else costi
+        lts_norm = lts / lts.max() if lts.max() > 0 else lts
+        pens_norm = pens / pens.max() if pens.max() > 0 else pens
+
+        labels = ["Costo", "Lead Time", "Penalità"]
+        num_vars = len(labels)
+
+        fig = plt.figure(figsize=(6, 6))
+        ax = fig.add_subplot(111, polar=True)
+
+        for idx, r in enumerate(risultati_radar):
+            valori = [costi_norm[idx], lts_norm[idx], pens_norm[idx]]
+            valori += valori[:1]
+
+            angoli = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+            angoli += angoli[:1]
+
+            ax.plot(angoli, valori, label=f"Ordine {r['ordine']} – {r['fornitore']}")
+            ax.fill(angoli, valori, alpha=0.1)
+
+        ax.set_xticks(angoli[:-1])
+        ax.set_xticklabels(labels)
+        ax.set_title("Confronto tra i fornitori vincitori (valori normalizzati)")
+        ax.legend(loc="upper right", bbox_to_anchor=(1.3, 1.1))
+
+        st.pyplot(fig)
+
+    else:
+        st.info("Nessun ordine assegnato, impossibile generare il grafico radar.")
